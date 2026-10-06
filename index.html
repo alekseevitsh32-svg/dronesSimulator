@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Симулятор дрона</title>
+<style>
+  * { -webkit-tap-highlight-color: transparent; user-select: none; }
+  html, body { margin:0; padding:0; overflow:hidden; background:#87CEEB;
+    font-family:-apple-system,sans-serif; touch-action:none; }
+  #hud {
+    position:fixed; top:10px; left:10px; color:#fff;
+    text-shadow:1px 1px 2px #000; font-size:14px;
+    background:rgba(0,0,0,0.35); padding:8px 12px; border-radius:8px;
+    pointer-events:none;
+  }
+  #msg {
+    position:fixed; top:40%; left:50%; transform:translate(-50%,-50%);
+    color:#fff; font-size:24px; text-shadow:2px 2px 4px #000;
+    display:none; text-align:center; pointer-events:none;
+  }
+  .btn {
+    position:fixed; width:70px; height:70px; border-radius:50%;
+    background:rgba(255,255,255,0.25); border:2px solid rgba(255,255,255,0.6);
+    color:#fff; font-size:26px; font-weight:bold;
+    display:flex; align-items:center; justify-content:center;
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    touch-action:none;
+  }
+  .btn:active { background:rgba(255,255,255,0.5); }
+  /* Левая панель — движение */
+  #btnW { left:110px; bottom:110px; }
+  #btnS { left:110px; bottom:20px; }
+  #btnA { left:20px;  bottom:65px; }
+  #btnD { left:200px; bottom:65px; }
+  /* Правая панель — вверх/вниз и поворот */
+  #btnUp   { right:110px; bottom:110px; }
+  #btnDown { right:110px; bottom:20px; }
+  #btnQ    { right:200px; bottom:65px; }
+  #btnE    { right:20px;  bottom:65px; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <b>Дрон</b><br>
+  Собрано: <span id="score">0</span> / 10
+</div>
+<div id="msg"></div>
+
+<div class="btn" id="btnW">▲</div>
+<div class="btn" id="btnS">▼</div>
+<div class="btn" id="btnA">◀</div>
+<div class="btn" id="btnD">▶</div>
+<div class="btn" id="btnUp">⬆</div>
+<div class="btn" id="btnDown">⬇</div>
+<div class="btn" id="btnQ">↺</div>
+<div class="btn" id="btnE">↻</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87CEEB);
+scene.fog = new THREE.Fog(0x87CEEB, 30, 80);
+
+const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 500);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+const sun = new THREE.DirectionalLight(0xffffff, 1);
+sun.position.set(20, 40, 20);
+scene.add(sun);
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(200, 200),
+  new THREE.MeshStandardMaterial({ color:0x3a7d44 })
+);
+ground.rotation.x = -Math.PI/2;
+scene.add(ground);
+
+const grid = new THREE.GridHelper(200, 50, 0x000000, 0x000000);
+grid.material.opacity = 0.15;
+grid.material.transparent = true;
+scene.add(grid);
+
+// Дрон
+const drone = new THREE.Group();
+const body = new THREE.Mesh(
+  new THREE.BoxGeometry(1.2, 0.3, 1.2),
+  new THREE.MeshStandardMaterial({ color:0x222222 })
+);
+drone.add(body);
+
+const rotors = [];
+[[-0.8,-0.8],[0.8,-0.8],[-0.8,0.8],[0.8,0.8]].forEach(p => {
+  const arm = new THREE.Mesh(
+    new THREE.BoxGeometry(1.2,0.1,0.15),
+    new THREE.MeshStandardMaterial({ color:0x111111 })
+  );
+  arm.position.set(p[0]/2, 0.05, p[1]/2);
+  arm.rotation.y = Math.atan2(p[1], p[0]);
+  drone.add(arm);
+
+  const rotor = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.35,0.35,0.05,16),
+    new THREE.MeshStandardMaterial({ color:0x888888, transparent:true, opacity:0.7 })
+  );
+  rotor.position.set(p[0], 0.15, p[1]);
+  drone.add(rotor);
+  rotors.push(rotor);
+});
+drone.position.set(0, 5, 0);
+scene.add(drone);
+
+// Кубики
+const cubes = [];
+const cubeGeo = new THREE.BoxGeometry(1,1,1);
+const cubeMat = new THREE.MeshStandardMaterial({ color:0x00ff66, emissive:0x00aa44 });
+for (let i = 0; i < 10; i++) {
+  const c = new THREE.Mesh(cubeGeo, cubeMat);
+  c.position.set((Math.random()-0.5)*60, Math.random()*8+2, (Math.random()-0.5)*60);
+  scene.add(c);
+  cubes.push(c);
+}
+
+// Управление — состояние кнопок
+const keys = { W:false, S:false, A:false, D:false, Q:false, E:false, Up:false, Down:false };
+
+function bindBtn(id, key) {
+  const el = document.getElementById(id);
+  const on  = e => { e.preventDefault(); keys[key] = true;  };
+  const off = e => { e.preventDefault(); keys[key] = false; };
+  el.addEventListener('touchstart', on, {passive:false});
+  el.addEventListener('touchend', off, {passive:false});
+  el.addEventListener('touchcancel', off, {passive:false});
+  el.addEventListener('mousedown', on);
+  el.addEventListener('mouseup', off);
+  el.addEventListener('mouseleave', off);
+}
+bindBtn('btnW','W'); bindBtn('btnS','S');
+bindBtn('btnA','A'); bindBtn('btnD','D');
+bindBtn('btnUp','Up'); bindBtn('btnDown','Down');
+bindBtn('btnQ','Q'); bindBtn('btnE','E');
+
+let yaw = 0, velY = 0, score = 0;
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  if (keys.Q) yaw += 1.5 * dt;
+  if (keys.E) yaw -= 1.5 * dt;
+  drone.rotation.y = yaw;
+
+  const speed = 10;
+  const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+  const right   = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  const move = new THREE.Vector3();
+  if (keys.W) move.add(forward);
+  if (keys.S) move.sub(forward);
+  if (keys.A) move.sub(right);
+  if (keys.D) move.add(right);
+  if (move.length() > 0) {
+    move.normalize().multiplyScalar(speed * dt);
+    drone.position.add(move);
+  }
+
+  if (keys.Up)   velY += 15 * dt;
+  if (keys.Down) velY -= 15 * dt;
+  if (!keys.Up && !keys.Down) velY *= 0.9;
+  velY -= 2 * dt;
+  velY = Math.max(-8, Math.min(8, velY));
+  drone.position.y += velY;
+  if (drone.position.y < 0.5) { drone.position.y = 0.5; velY = 0; }
+  if (drone.position.y > 40)  { drone.position.y = 40;  velY = 0; }
+
+  drone.rotation.z = -velY * 0.03;
+
+  rotors.forEach((r,i) => r.rotation.y += (i%2? 1 : -1) * 30 * dt);
+
+  for (let i = cubes.length-1; i >= 0; i--) {
+    const c = cubes[i];
+    c.rotation.y += dt;
+    if (drone.position.distanceTo(c.position) < 1.5) {
+      scene.remove(c);
+      cubes.splice(i,1);
+      score++;
+      document.getElementById('score').textContent = score;
+      if (score === 10) {
+        const m = document.getElementById('msg');
+        m.textContent = '🎉 Все кубики собраны!';
+        m.style.display = 'block';
+      }
+    }
+  }
+
+  const camOffset = new THREE.Vector3(0, 4, -8).applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+  const targetCamPos = drone.position.clone().add(camOffset);
+  camera.position.lerp(targetCamPos, 0.1);
+  camera.lookAt(drone.position.x, drone.position.y + 1, drone.position.z);
+
+  renderer.render(scene, camera);
+}
+animate();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// Блокируем скролл/зум на iOS
+document.addEventListener('gesturestart', e => e.preventDefault());
+</script>
+</body>
+</html>
