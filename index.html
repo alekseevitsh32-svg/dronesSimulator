@@ -1,219 +1,907 @@
-<!DOCTYPE html>
+<<!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Симулятор дрона</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Симулятор дрона FPV</title>
 <style>
-  * { -webkit-tap-highlight-color: transparent; user-select: none; }
-  html, body { margin:0; padding:0; overflow:hidden; background:#87CEEB;
-    font-family:-apple-system,sans-serif; touch-action:none; }
+  * {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    box-sizing: border-box;
+  }
+  html, body {
+    margin:0; padding:0; overflow:hidden;
+    background:#000; font-family:-apple-system, sans-serif;
+    touch-action: none;
+    overscroll-behavior: none;
+    position: fixed;
+    width: 100%; height: 100%;
+  }
+  canvas { display:block; }
+
   #hud {
-    position:fixed; top:10px; left:10px; color:#fff;
-    text-shadow:1px 1px 2px #000; font-size:14px;
-    background:rgba(0,0,0,0.35); padding:8px 12px; border-radius:8px;
-    pointer-events:none;
+    position:fixed; top:env(safe-area-inset-top, 10px); left:10px;
+    color:#0f0; font-family: 'Courier New', monospace; font-size:13px;
+    text-shadow:0 0 6px #0f0;
+    background:rgba(0,0,0,0.5); padding:8px 12px; border-radius:8px;
+    pointer-events:none; line-height:1.4;
+    border: 1px solid rgba(0,255,0,0.3);
   }
   #msg {
     position:fixed; top:40%; left:50%; transform:translate(-50%,-50%);
-    color:#fff; font-size:24px; text-shadow:2px 2px 4px #000;
+    color:#fff; font-size:28px; font-weight:bold;
+    text-shadow:0 0 20px #f00, 2px 2px 6px #000;
     display:none; text-align:center; pointer-events:none;
+    padding: 20px 30px; border-radius: 14px;
+    background: rgba(0,0,0,0.7);
   }
-  .btn {
-    position:fixed; width:70px; height:70px; border-radius:50%;
-    background:rgba(255,255,255,0.25); border:2px solid rgba(255,255,255,0.6);
-    color:#fff; font-size:26px; font-weight:bold;
+  #msg.show { display:block; animation: fadeIn 0.3s; }
+  @keyframes fadeIn { from { opacity:0; transform:translate(-50%,-50%) scale(0.7);} to {opacity:1;} }
+
+  #crosshair {
+    position:fixed; top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    color: #0f0; font-size: 22px; pointer-events: none;
+    text-shadow: 0 0 6px #0f0;
+    display: none;
+  }
+
+  /* Стики */
+  .stick {
+    position: fixed; width: 130px; height: 130px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 2px solid rgba(255,255,255,0.25);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    touch-action: none;
+  }
+  .stick .knob {
+    position: absolute; width: 56px; height: 56px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.35);
+    border: 2px solid rgba(255,255,255,0.7);
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    transition: background 0.1s;
+  }
+  .stick.active .knob { background: rgba(0,255,100,0.55); }
+
+  #stickL { left: 20px; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
+  #stickR { right: 20px; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
+
+  /* Кнопка стрельбы */
+  #fireBtn {
+    position: fixed;
+    right: calc(170px + env(safe-area-inset-right, 0px));
+    bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+    width: 90px; height: 90px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,80,0,0.6), rgba(200,0,0,0.6));
+    border: 3px solid rgba(255,200,0,0.9);
+    color: #fff; font-size: 34px; font-weight: bold;
     display:flex; align-items:center; justify-content:center;
-    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-    touch-action:none;
+    text-shadow: 0 0 8px #000;
+    touch-action: none;
+    box-shadow: 0 0 20px rgba(255,80,0,0.5);
   }
-  .btn:active { background:rgba(255,255,255,0.5); }
-  /* Левая панель — движение */
-  #btnW { left:110px; bottom:110px; }
-  #btnS { left:110px; bottom:20px; }
-  #btnA { left:20px;  bottom:65px; }
-  #btnD { left:200px; bottom:65px; }
-  /* Правая панель — вверх/вниз и поворот */
-  #btnUp   { right:110px; bottom:110px; }
-  #btnDown { right:110px; bottom:20px; }
-  #btnQ    { right:200px; bottom:65px; }
-  #btnE    { right:20px;  bottom:65px; }
+  #fireBtn:active { background: radial-gradient(circle, rgba(255,200,0,0.9), rgba(255,80,0,0.9)); }
+
+  /* Кнопка вида */
+  #viewBtn {
+    position: fixed;
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    right: calc(10px + env(safe-area-inset-right, 0px));
+    width: 60px; height: 60px; border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    border: 2px solid rgba(255,255,255,0.5);
+    color: #fff; font-size: 26px;
+    display:flex; align-items:center; justify-content:center;
+    touch-action: none;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+
+  #soundBtn {
+    position: fixed;
+    top: calc(80px + env(safe-area-inset-top, 0px));
+    right: calc(10px + env(safe-area-inset-right, 0px));
+    width: 60px; height: 60px; border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    border: 2px solid rgba(255,255,255,0.5);
+    color: #fff; font-size: 24px;
+    display:flex; align-items:center; justify-content:center;
+    touch-action: none;
+  }
+
+  #flash {
+    position: fixed; inset: 0; background: #fff;
+    pointer-events: none; opacity: 0; z-index: 100;
+  }
 </style>
 </head>
 <body>
 <div id="hud">
-  <b>Дрон</b><br>
-  Собрано: <span id="score">0</span> / 10
+  <div>SCORE: <span id="score">0</span>/10</div>
+  <div>ALT: <span id="alt">0</span>m</div>
+  <div>SPD: <span id="spd">0</span></div>
+  <div>VIEW: <span id="viewMode">FPV</span></div>
 </div>
+<div id="crosshair">◎</div>
 <div id="msg"></div>
+<div id="flash"></div>
 
-<div class="btn" id="btnW">▲</div>
-<div class="btn" id="btnS">▼</div>
-<div class="btn" id="btnA">◀</div>
-<div class="btn" id="btnD">▶</div>
-<div class="btn" id="btnUp">⬆</div>
-<div class="btn" id="btnDown">⬇</div>
-<div class="btn" id="btnQ">↺</div>
-<div class="btn" id="btnE">↻</div>
+<div class="stick" id="stickL"><div class="knob"></div></div>
+<div class="stick" id="stickR"><div class="knob"></div></div>
+<div id="fireBtn">🔥</div>
+<div id="viewBtn">👁</div>
+<div id="soundBtn">🔊</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
+// ============================================================
+// АУДИО (WebAudio, генерируем всё на лету)
+// ============================================================
+let audioCtx = null;
+let soundEnabled = true;
+
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+document.addEventListener('touchstart', initAudio, { once: true });
+document.addEventListener('mousedown', initAudio, { once: true });
+
+// --- Гул моторов (непрерывный, 4 тона) ---
+let motorGain = null;
+let motorOscs = [];
+function startMotors() {
+  if (!audioCtx || motorOscs.length) return;
+  motorGain = audioCtx.createGain();
+  motorGain.gain.value = 0;
+  motorGain.connect(audioCtx.destination);
+
+  // Немного шума + 4 осциллятора для "жужжания"
+  [110, 165, 220, 330].forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    osc.type = i % 2 ? 'sawtooth' : 'square';
+    osc.frequency.value = freq;
+    const g = audioCtx.createGain();
+    g.gain.value = 0.03;
+    osc.connect(g); g.connect(motorGain);
+    osc.start();
+    motorOscs.push({ osc, gain: g, base: freq });
+  });
+}
+
+function updateMotorSound(throttle) {
+  if (!motorGain) return;
+  // throttle 0..1
+  const t = Math.max(0, Math.min(1, throttle));
+  motorGain.gain.setTargetAtTime(soundEnabled ? 0.25 * t + 0.05 : 0, audioCtx.currentTime, 0.05);
+  motorOscs.forEach((m, i) => {
+    m.osc.frequency.setTargetAtTime(m.base * (0.8 + t * 0.7), audioCtx.currentTime, 0.05);
+  });
+}
+
+// --- Выстрел ---
+function playShoot() {
+  if (!audioCtx || !soundEnabled) return;
+  const t = audioCtx.currentTime;
+  // Шумовой всплеск
+  const bufferSize = 0.15 * audioCtx.sampleRate;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+  }
+  const src = audioCtx.createBufferSource();
+  src.buffer = buffer;
+
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 1200;
+  filter.Q.value = 1.5;
+
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.5, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+
+  src.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+  src.start(t);
+
+  // Низкий "бум"
+  const osc = audioCtx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(200, t);
+  osc.frequency.exponentialRampToValueAtTime(40, t + 0.15);
+  const og = audioCtx.createGain();
+  og.gain.setValueAtTime(0.4, t);
+  og.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+  osc.connect(og); og.connect(audioCtx.destination);
+  osc.start(t); osc.stop(t + 0.16);
+}
+
+// --- Взрыв ---
+function playExplosion() {
+  if (!audioCtx || !soundEnabled) return;
+  const t = audioCtx.currentTime;
+  // Длинный шум
+  const dur = 1.2;
+  const bufferSize = dur * audioCtx.sampleRate;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 1.5);
+  }
+  const src = audioCtx.createBufferSource();
+  src.buffer = buffer;
+
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(2000, t);
+  filter.frequency.exponentialRampToValueAtTime(100, t + dur);
+
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.9, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+  src.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+  src.start(t);
+
+  // Низкий сабвуфер-бас
+  const osc = audioCtx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(80, t);
+  osc.frequency.exponentialRampToValueAtTime(25, t + 0.6);
+  const og = audioCtx.createGain();
+  og.gain.setValueAtTime(0.7, t);
+  og.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+  osc.connect(og); og.connect(audioCtx.destination);
+  osc.start(t); osc.stop(t + 0.8);
+}
+
+// --- Попадание ---
+function playHit() {
+  if (!audioCtx || !soundEnabled) return;
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(880, t);
+  osc.frequency.exponentialRampToValueAtTime(1760, t + 0.08);
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(0.25, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+  osc.connect(g); g.connect(audioCtx.destination);
+  osc.start(t); osc.stop(t + 0.16);
+}
+
+// ============================================================
+// THREE.JS СЦЕНА
+// ============================================================
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
-scene.fog = new THREE.Fog(0x87CEEB, 30, 80);
+scene.fog = new THREE.Fog(0x87CEEB, 60, 160);
 
-const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 500);
-const renderer = new THREE.WebGLRenderer({ antialias:true });
+const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 500);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+// Свет
+scene.add(new THREE.HemisphereLight(0xffffff, 0x334422, 1.1));
 const sun = new THREE.DirectionalLight(0xffffff, 1);
-sun.position.set(20, 40, 20);
+sun.position.set(30, 50, 20);
 scene.add(sun);
 
+// Земля
 const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(200, 200),
-  new THREE.MeshStandardMaterial({ color:0x3a7d44 })
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.MeshStandardMaterial({ color: 0x4a8b3a })
 );
 ground.rotation.x = -Math.PI/2;
 scene.add(ground);
 
-const grid = new THREE.GridHelper(200, 50, 0x000000, 0x000000);
-grid.material.opacity = 0.15;
+const grid = new THREE.GridHelper(400, 80, 0x000000, 0x000000);
+grid.material.opacity = 0.12;
 grid.material.transparent = true;
 scene.add(grid);
 
-// Дрон
+// Несколько деревьев/строений для ориентира
+for (let i = 0; i < 30; i++) {
+  const h = 2 + Math.random() * 4;
+  const tree = new THREE.Mesh(
+    new THREE.ConeGeometry(1 + Math.random(), h, 6),
+    new THREE.MeshStandardMaterial({ color: 0x2a5a20 })
+  );
+  tree.position.set((Math.random()-0.5)*180, h/2, (Math.random()-0.5)*180);
+  scene.add(tree);
+}
+
+// ============================================================
+// ДРОН (более детальный)
+// ============================================================
 const drone = new THREE.Group();
-const body = new THREE.Mesh(
-  new THREE.BoxGeometry(1.2, 0.3, 1.2),
-  new THREE.MeshStandardMaterial({ color:0x222222 })
-);
+
+// Корпус
+const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.5, roughness: 0.4 });
+const body = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.35, 1.4), bodyMat);
 drone.add(body);
 
+// Верхняя крышка (акцент)
+const topMat = new THREE.MeshStandardMaterial({ color: 0xd32f2f, metalness: 0.6, roughness: 0.3 });
+const top = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.1, 1.0), topMat);
+top.position.y = 0.22;
+drone.add(top);
+
+// Камера спереди
+const camBody = new THREE.Mesh(
+  new THREE.BoxGeometry(0.35, 0.35, 0.35),
+  new THREE.MeshStandardMaterial({ color: 0x111111 })
+);
+camBody.position.set(0, -0.05, 0.85);
+drone.add(camBody);
+
+const lens = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.12, 0.12, 0.1, 16),
+  new THREE.MeshStandardMaterial({ color: 0x0000ff, emissive: 0x000088, metalness: 1 })
+);
+lens.rotation.x = Math.PI/2;
+lens.position.set(0, -0.05, 1.05);
+drone.add(lens);
+
+// Пушка снизу
+const gun = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.08, 0.08, 0.9, 12),
+  new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8 })
+);
+gun.rotation.x = Math.PI/2;
+gun.position.set(0, -0.25, 0.7);
+drone.add(gun);
+
+// Моторы + винты
+const rotorMat = new THREE.MeshStandardMaterial({ color: 0x666666, transparent: true, opacity: 0.5 });
+const bladeMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+
 const rotors = [];
-[[-0.8,-0.8],[0.8,-0.8],[-0.8,0.8],[0.8,0.8]].forEach(p => {
+const armPositions = [[-0.9,-0.9],[0.9,-0.9],[-0.9,0.9],[0.9,0.9]];
+armPositions.forEach(p => {
+  // Луч
   const arm = new THREE.Mesh(
-    new THREE.BoxGeometry(1.2,0.1,0.15),
-    new THREE.MeshStandardMaterial({ color:0x111111 })
+    new THREE.BoxGeometry(Math.hypot(p[0], p[1]), 0.08, 0.14),
+    new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.6 })
   );
   arm.position.set(p[0]/2, 0.05, p[1]/2);
   arm.rotation.y = Math.atan2(p[1], p[0]);
   drone.add(arm);
 
-  const rotor = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.35,0.35,0.05,16),
-    new THREE.MeshStandardMaterial({ color:0x888888, transparent:true, opacity:0.7 })
+  // Мотор
+  const motor = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.18, 0.2, 12),
+    new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.9 })
   );
-  rotor.position.set(p[0], 0.15, p[1]);
-  drone.add(rotor);
-  rotors.push(rotor);
+  motor.position.set(p[0], 0.05, p[1]);
+  drone.add(motor);
+
+  // Винт (2 лопасти)
+  const rotorGroup = new THREE.Group();
+  rotorGroup.position.set(p[0], 0.2, p[1]);
+  for (let k = 0; k < 2; k++) {
+    const blade = new THREE.Mesh(
+      new THREE.BoxGeometry(0.75, 0.02, 0.1),
+      bladeMat
+    );
+    blade.rotation.y = k * Math.PI / 2;
+    rotorGroup.add(blade);
+  }
+  // Круг (диск винта, полупрозрачный)
+  const disc = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.4, 0.4, 0.02, 20),
+    rotorMat
+  );
+  rotorGroup.add(disc);
+  drone.add(rotorGroup);
+  rotors.push(rotorGroup);
 });
-drone.position.set(0, 5, 0);
+
+// Красный светодиод
+const led = new THREE.Mesh(
+  new THREE.SphereGeometry(0.06, 8, 8),
+  new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000 })
+);
+led.position.set(0, 0.15, -0.75);
+drone.add(led);
+
+drone.position.set(0, 8, 0);
 scene.add(drone);
 
-// Кубики
+// ============================================================
+// КУБИКИ
+// ============================================================
 const cubes = [];
-const cubeGeo = new THREE.BoxGeometry(1,1,1);
-const cubeMat = new THREE.MeshStandardMaterial({ color:0x00ff66, emissive:0x00aa44 });
+const cubeGeo = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+const cubeMat = new THREE.MeshStandardMaterial({
+  color: 0x00ff88, emissive: 0x00aa55, metalness: 0.3, roughness: 0.4
+});
 for (let i = 0; i < 10; i++) {
   const c = new THREE.Mesh(cubeGeo, cubeMat);
-  c.position.set((Math.random()-0.5)*60, Math.random()*8+2, (Math.random()-0.5)*60);
+  c.position.set((Math.random()-0.5)*120, Math.random()*15+3, (Math.random()-0.5)*120);
+  c.userData.spinOffset = Math.random() * Math.PI * 2;
   scene.add(c);
   cubes.push(c);
 }
 
-// Управление — состояние кнопок
-const keys = { W:false, S:false, A:false, D:false, Q:false, E:false, Up:false, Down:false };
+// ============================================================
+// ПУЛИ
+// ============================================================
+const bullets = [];
+const bulletGeo = new THREE.SphereGeometry(0.12, 8, 8);
+const bulletMat = new THREE.MeshStandardMaterial({ color: 0xffff00, emissive: 0xffaa00 });
 
-function bindBtn(id, key) {
-  const el = document.getElementById(id);
-  const on  = e => { e.preventDefault(); keys[key] = true;  };
-  const off = e => { e.preventDefault(); keys[key] = false; };
-  el.addEventListener('touchstart', on, {passive:false});
-  el.addEventListener('touchend', off, {passive:false});
-  el.addEventListener('touchcancel', off, {passive:false});
-  el.addEventListener('mousedown', on);
-  el.addEventListener('mouseup', off);
-  el.addEventListener('mouseleave', off);
+// ============================================================
+// ЧАСТИЦЫ ВЗРЫВА
+// ============================================================
+const explosions = [];
+function spawnExplosion(pos) {
+  const count = 40;
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(count * 3);
+  const velocities = [];
+  for (let i = 0; i < count; i++) {
+    positions[i*3] = pos.x;
+    positions[i*3+1] = pos.y;
+    positions[i*3+2] = pos.z;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(Math.random() * 2 - 1);
+    const speed = 3 + Math.random() * 8;
+    velocities.push(new THREE.Vector3(
+      Math.sin(phi)*Math.cos(theta)*speed,
+      Math.cos(phi)*speed,
+      Math.sin(phi)*Math.sin(theta)*speed
+    ));
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0xff6600, size: 0.5, transparent: true, opacity: 1,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  });
+  const pts = new THREE.Points(geo, mat);
+  scene.add(pts);
+
+  // Вспышка
+  const flash = new THREE.PointLight(0xff8800, 8, 30);
+  flash.position.copy(pos);
+  scene.add(flash);
+
+  explosions.push({ pts, velocities, life: 0, maxLife: 1.5, flash });
 }
-bindBtn('btnW','W'); bindBtn('btnS','S');
-bindBtn('btnA','A'); bindBtn('btnD','D');
-bindBtn('btnUp','Up'); bindBtn('btnDown','Down');
-bindBtn('btnQ','Q'); bindBtn('btnE','E');
 
-let yaw = 0, velY = 0, score = 0;
+function updateExplosions(dt) {
+  for (let i = explosions.length - 1; i >= 0; i--) {
+    const e = explosions[i];
+    e.life += dt;
+    const positions = e.pts.geometry.attributes.position.array;
+    for (let j = 0; j < e.velocities.length; j++) {
+      const v = e.velocities[j];
+      v.y -= 9.8 * dt;
+      positions[j*3]   += v.x * dt;
+      positions[j*3+1] += v.y * dt;
+      positions[j*3+2] += v.z * dt;
+    }
+    e.pts.geometry.attributes.position.needsUpdate = true;
+    e.pts.material.opacity = 1 - e.life / e.maxLife;
+    e.flash.intensity = 8 * (1 - e.life / e.maxLife);
+
+    if (e.life >= e.maxLife) {
+      scene.remove(e.pts);
+      scene.remove(e.flash);
+      e.pts.geometry.dispose();
+      explosions.splice(i, 1);
+    }
+  }
+}
+
+// ============================================================
+// УПРАВЛЕНИЕ (стики)
+// ============================================================
+function createStick(el) {
+  const knob = el.querySelector('.knob');
+  const state = { x: 0, y: 0, active: false, id: null };
+  const maxDist = 45;
+
+  function setKnob(dx, dy) {
+    knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+  }
+
+  function onStart(e) {
+    e.preventDefault();
+    const t = e.changedTouches ? e.changedTouches[0] : e;
+    state.id = t.identifier ?? 'mouse';
+    state.active = true;
+    el.classList.add('active');
+    updateFromEvent(t);
+  }
+  function onMove(e) {
+    if (!state.active) return;
+    e.preventDefault();
+    let t = null;
+    if (e.changedTouches) {
+      for (const tt of e.changedTouches) {
+        if ((tt.identifier) === state.id) { t = tt; break; }
+      }
+      if (!t) return;
+    } else t = e;
+    updateFromEvent(t);
+  }
+  function onEnd(e) {
+    if (!state.active) return;
+    e.preventDefault();
+    state.active = false;
+    state.id = null;
+    state.x = 0; state.y = 0;
+    setKnob(0, 0);
+    el.classList.remove('active');
+  }
+  function updateFromEvent(t) {
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width/2;
+    const cy = rect.top + rect.height/2;
+    let dx = t.clientX - cx;
+    let dy = t.clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxDist) {
+      dx = dx / dist * maxDist;
+      dy = dy / dist * maxDist;
+    }
+    setKnob(dx, dy);
+    state.x = dx / maxDist;
+    state.y = dy / maxDist;
+  }
+
+  el.addEventListener('touchstart', onStart, { passive: false });
+  el.addEventListener('touchmove', onMove, { passive: false });
+  el.addEventListener('touchend', onEnd, { passive: false });
+  el.addEventListener('touchcancel', onEnd, { passive: false });
+  el.addEventListener('mousedown', onStart);
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onEnd);
+
+  return state;
+}
+
+const stickL = createStick(document.getElementById('stickL'));
+const stickR = createStick(document.getElementById('stickR'));
+
+// ============================================================
+// КНОПКА СТРЕЛЬБЫ
+// ============================================================
+let firing = false;
+const fireBtn = document.getElementById('fireBtn');
+let fireCooldown = 0;
+
+function onFireStart(e) { e.preventDefault(); firing = true; initAudio(); }
+function onFireEnd(e)   { e.preventDefault(); firing = false; }
+fireBtn.addEventListener('touchstart', onFireStart, { passive: false });
+fireBtn.addEventListener('touchend', onFireEnd, { passive: false });
+fireBtn.addEventListener('touchcancel', onFireEnd, { passive: false });
+fireBtn.addEventListener('mousedown', onFireStart);
+fireBtn.addEventListener('mouseup', onFireEnd);
+fireBtn.addEventListener('mouseleave', onFireEnd);
+
+// ============================================================
+// ПЕРЕКЛЮЧАТЕЛЬ ВИДА
+// ============================================================
+let viewMode = 'fpv'; // 'fpv' | 'tps'
+const viewBtn = document.getElementById('viewBtn');
+const viewModeEl = document.getElementById('viewMode');
+const crosshair = document.getElementById('crosshair');
+crosshair.style.display = 'block';
+
+viewBtn.addEventListener('touchstart', e => {
+  e.preventDefault();
+  viewMode = viewMode === 'fpv' ? 'tps' : 'fpv';
+  viewModeEl.textContent = viewMode === 'fpv' ? 'FPV' : '3RD';
+}, { passive: false });
+
+// ============================================================
+// ЗВУК ВКЛ/ВЫКЛ
+// ============================================================
+const soundBtn = document.getElementById('soundBtn');
+soundBtn.addEventListener('touchstart', e => {
+  e.preventDefault();
+  soundEnabled = !soundEnabled;
+  soundBtn.textContent = soundEnabled ? '🔊' : '🔇';
+  initAudio();
+  if (soundEnabled) startMotors();
+}, { passive: false });
+
+// ============================================================
+// ФИЗИКА / СОСТОЯНИЕ
+// ============================================================
+let yaw = 0;
+let velocityY = 0;
+let velocityXZ = new THREE.Vector3();
+let score = 0;
+let dead = false;
+
+const scoreEl = document.getElementById('score');
+const altEl = document.getElementById('alt');
+const spdEl = document.getElementById('spd');
+const msgEl = document.getElementById('msg');
+const flashEl = document.getElementById('flash');
+
+// Запуск моторов после первого касания
+document.addEventListener('touchstart', () => { initAudio(); startMotors(); }, { once: true });
+document.addEventListener('mousedown', () => { initAudio(); startMotors(); }, { once: true });
+
 const clock = new THREE.Clock();
 
+// ============================================================
+// ИГРОВОЙ ЦИКЛ
+// ============================================================
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
 
-  if (keys.Q) yaw += 1.5 * dt;
-  if (keys.E) yaw -= 1.5 * dt;
-  drone.rotation.y = yaw;
+  if (!dead) {
+    // --- Стик левый: движение XZ
+    const moveInput = new THREE.Vector3(stickL.x, 0, stickL.y);
+    const inputMag = Math.min(1, moveInput.length());
 
-  const speed = 10;
-  const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-  const right   = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-  const move = new THREE.Vector3();
-  if (keys.W) move.add(forward);
-  if (keys.S) move.sub(forward);
-  if (keys.A) move.sub(right);
-  if (keys.D) move.add(right);
-  if (move.length() > 0) {
-    move.normalize().multiplyScalar(speed * dt);
-    drone.position.add(move);
-  }
+    // --- Стик правый: yaw + высота
+    const yawInput = stickR.x;      // -1..1
+    const altInput = stickR.y;      // -1 (вверх) .. 1 (вниз)
 
-  if (keys.Up)   velY += 15 * dt;
-  if (keys.Down) velY -= 15 * dt;
-  if (!keys.Up && !keys.Down) velY *= 0.9;
-  velY -= 2 * dt;
-  velY = Math.max(-8, Math.min(8, velY));
-  drone.position.y += velY;
-  if (drone.position.y < 0.5) { drone.position.y = 0.5; velY = 0; }
-  if (drone.position.y > 40)  { drone.position.y = 40;  velY = 0; }
+    yaw -= yawInput * 2.2 * dt;
 
-  drone.rotation.z = -velY * 0.03;
+    // Вперёд — направление по yaw
+    const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    const right   = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
 
-  rotors.forEach((r,i) => r.rotation.y += (i%2? 1 : -1) * 30 * dt);
+    const targetVXZ = new THREE.Vector3()
+      .addScaledVector(forward, -stickL.y * 15)  // вверх стик = вперёд
+      .addScaledVector(right,    stickL.x * 15);
+    velocityXZ.lerp(targetVXZ, 0.15);
 
-  for (let i = cubes.length-1; i >= 0; i--) {
-    const c = cubes[i];
-    c.rotation.y += dt;
-    if (drone.position.distanceTo(c.position) < 1.5) {
-      scene.remove(c);
-      cubes.splice(i,1);
-      score++;
-      document.getElementById('score').textContent = score;
-      if (score === 10) {
-        const m = document.getElementById('msg');
-        m.textContent = '🎉 Все кубики собраны!';
-        m.style.display = 'block';
+    // Высота (правый стик)
+    const targetVY = -altInput * 10;
+    velocityY += (targetVY - velocityY) * 0.15;
+
+    drone.position.x += velocityXZ.x * dt;
+    drone.position.z += velocityXZ.z * dt;
+    drone.position.y += velocityY * dt;
+
+    // Ограничение высоты
+    if (drone.position.y > 50) { drone.position.y = 50; velocityY = 0; }
+    if (drone.position.y < 0) drone.position.y = 0;
+
+    drone.rotation.y = yaw;
+    drone.rotation.z = -velocityXZ.dot(right) * 0.02;
+    drone.rotation.x =  velocityXZ.dot(forward) * 0.015;
+
+    // --- Звук моторов по "тяге"
+    const throttle = Math.min(1, inputMag * 0.5 + Math.abs(altInput) * 0.5 + 0.15);
+    updateMotorSound(throttle);
+
+    // --- Стрельба
+    fireCooldown -= dt;
+    if (firing && fireCooldown <= 0) {
+      fireCooldown = 0.12;
+      playShoot();
+
+      // Создаём пулю
+      const bullet = new THREE.Mesh(bulletGeo, bulletMat);
+      const forwardDir = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+      const muzzle = drone.position.clone()
+        .add(new THREE.Vector3(0, -0.3, 0))
+        .addScaledVector(forwardDir, 1.2);
+      bullet.position.copy(muzzle);
+      bullet.userData.vel = forwardDir.clone().multiplyScalar(60);
+      bullet.userData.life = 0;
+      scene.add(bullet);
+      bullets.push(bullet);
+
+      // Вспышка дула
+      const muzzleFlash = new THREE.PointLight(0xffaa00, 5, 8);
+      muzzleFlash.position.copy(muzzle);
+      scene.add(muzzleFlash);
+      setTimeout(() => scene.remove(muzzleFlash), 60);
+    }
+
+    // --- Обновление пуль
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      b.position.addScaledVector(b.userData.vel, dt);
+      b.userData.life += dt;
+
+      let hit = false;
+      // Попадание по кубикам
+      for (let j = cubes.length - 1; j >= 0; j--) {
+        if (b.position.distanceTo(cubes[j].position) < 1.2) {
+          scene.remove(cubes[j]);
+          cubes.splice(j, 1);
+          score++;
+          scoreEl.textContent = score;
+          playHit();
+          spawnExplosion(b.position);
+          if (score >= 10) showWin();
+          hit = true;
+          break;
+        }
+      }
+
+      if (hit || b.userData.life > 3 || b.position.y < 0) {
+        scene.remove(b);
+        bullets.splice(i, 1);
       }
     }
+
+    // --- Винты
+    rotors.forEach((r, i) => {
+      r.rotation.y += (i % 2 ? 1 : -1) * (30 + throttle * 60) * dt;
+    });
+
+    // --- LED мигает
+    led.material.emissiveIntensity = (Math.sin(performance.now() * 0.01) > 0) ? 1 : 0.1;
+
+    // --- Сбор кубиков касанием
+    for (let i = cubes.length - 1; i >= 0; i--) {
+      const c = cubes[i];
+      c.rotation.y += dt * 0.8;
+      c.position.y += Math.sin(performance.now() * 0.002 + c.userData.spinOffset) * 0.008;
+      if (drone.position.distanceTo(c.position) < 1.5) {
+        scene.remove(c);
+        cubes.splice(i, 1);
+        score++;
+        scoreEl.textContent = score;
+        playHit();
+        if (score >= 10) showWin();
+      }
+    }
+
+    // --- Проверка взрыва дрона
+    const groundY = 0.6; // чуть выше земли
+    const speedTotal = Math.hypot(velocityXZ.x, velocityXZ.z, velocityY);
+    const hardLanding = drone.position.y <= groundY && (speedTotal > 6 || velocityY < -6);
+
+    if (drone.position.y <= groundY) {
+      if (hardLanding) {
+        explodeDrone();
+      } else {
+        drone.position.y = groundY;
+        velocityY = 0;
+      }
+    }
+
+    altEl.textContent = drone.position.y.toFixed(1);
+    spdEl.textContent = speedTotal.toFixed(1);
   }
 
-  const camOffset = new THREE.Vector3(0, 4, -8).applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
-  const targetCamPos = drone.position.clone().add(camOffset);
-  camera.position.lerp(targetCamPos, 0.1);
-  camera.lookAt(drone.position.x, drone.position.y + 1, drone.position.z);
+  updateExplosions(dt);
+
+  // ============================================================
+  // КАМЕРА
+  // ============================================================
+  if (viewMode === 'fpv' && !dead) {
+    // Камера от лица дрона (FPV)
+    const camLocal = new THREE.Vector3(0, 0.1, 1.15);
+    const camWorld = camLocal.clone().applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+    const targetPos = drone.position.clone().add(camWorld);
+
+    camera.position.lerp(targetPos, 0.4);
+
+    const lookLocal = new THREE.Vector3(0, 0, 15).applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+    const lookAt = drone.position.clone().add(lookLocal);
+    lookAt.y = drone.position.y + 0.2;
+
+    // Плавное следование
+    const currentLook = new THREE.Vector3();
+    camera.getWorldDirection(currentLook);
+    const targetLook = lookAt.clone().sub(camera.position).normalize();
+    currentLook.lerp(targetLook, 0.3);
+    camera.lookAt(camera.position.clone().add(currentLook));
+  } else if (viewMode === 'tps' && !dead) {
+    // Вид от третьего лица — сзади и выше
+    const camOffset = new THREE.Vector3(0, 3, -7).applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+    const targetPos = drone.position.clone().add(camOffset);
+    camera.position.lerp(targetPos, 0.08);
+
+    const lookAt = drone.position.clone();
+    lookAt.y += 0.5;
+    camera.lookAt(lookAt);
+  }
 
   renderer.render(scene, camera);
 }
+
+function showWin() {
+  msgEl.textContent = '🎉 Все кубики собраны! 🎉';
+  msgEl.classList.add('show');
+}
+
+function explodeDrone() {
+  if (dead) return;
+  dead = true;
+
+  playExplosion();
+
+  // Взрыв на месте дрона
+  spawnExplosion(drone.position.clone());
+  // Дополнительные взрывы вокруг
+  for (let i = 0; i < 3; i++) {
+    setTimeout(() => {
+      const off = new THREE.Vector3(
+        (Math.random()-0.5)*4, Math.random()*2, (Math.random()-0.5)*4
+      );
+      spawnExplosion(drone.position.clone().add(off));
+    }, i * 150);
+  }
+
+  // Белая вспышка экрана
+  flashEl.style.transition = 'none';
+  flashEl.style.opacity = '0.9';
+  requestAnimationFrame(() => {
+    flashEl.style.transition = 'opacity 0.6s';
+    flashEl.style.opacity = '0';
+  });
+
+  // Скрываем дрон
+  drone.visible = false;
+
+  // Останавливаем звук моторов
+  if (motorGain) motorGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+
+  // Сообщение
+  msgEl.textContent = '💥 ДРОН РАЗБИЛСЯ 💥';
+  msgEl.classList.add('show');
+
+  // Перезапуск через 2.5 сек
+  setTimeout(() => {
+    dead = false;
+    drone.visible = true;
+    drone.position.set(0, 8, 0);
+    velocityY = 0;
+    velocityXZ.set(0,0,0);
+    yaw = 0;
+    msgEl.classList.remove('show');
+    if (motorGain) motorGain.gain.setTargetAtTime(0.05, audioCtx.currentTime, 0.1);
+  }, 2500);
+}
+
 animate();
 
+// Ресайз
 addEventListener('resize', () => {
-  camera.aspect = innerWidth/innerHeight;
+  camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
 
-// Блокируем скролл/зум на iOS
+// ============================================================
+// БЛОКИРОВКА ВЫДЕЛЕНИЯ И ЖЕСТОВ iOS
+// ============================================================
 document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('gesturechange', e => e.preventDefault());
+document.addEventListener('gestureend', e => e.preventDefault());
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('selectstart', e => e.preventDefault());
+document.addEventListener('dragstart', e => e.preventDefault());
+// Двойной тап — зум
+let lastTouchEnd = 0;
+document.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastTouchEnd <= 300) e.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
+document.addEventListener('dblclick', e => e.preventDefault());
 </script>
 </body>
 </html>
